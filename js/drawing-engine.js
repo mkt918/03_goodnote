@@ -36,7 +36,8 @@ export class DrawingEngine {
 
     // ストローク管理
     this.strokes = [];
-    this.undoStack = [];
+    this.undoStack = []; // 操作履歴（Undo用）
+    this.redoStack = []; // Redo用スタック
 
     // スケール（ズーム対応）
     this.scale = 1.0;
@@ -52,16 +53,21 @@ export class DrawingEngine {
    * イベントリスナーをバインド
    */
   _bindEvents() {
-    // マウスイベント
-    this.canvas.addEventListener('pointerdown', (e) => this._onPointerDown(e));
-    this.canvas.addEventListener('pointermove', (e) => this._onPointerMove(e));
-    this.canvas.addEventListener('pointerup', (e) => this._onPointerUp(e));
-    this.canvas.addEventListener('pointerleave', (e) => this._onPointerUp(e));
+    // removeEventListenerで確実に解除できるよう、バインド済み参照を保持
+    this._boundPointerDown = (e) => this._onPointerDown(e);
+    this._boundPointerMove = (e) => this._onPointerMove(e);
+    this._boundPointerUp = (e) => this._onPointerUp(e);
+    this._boundTouchStart = (e) => {
+      if (this.tool !== null) e.preventDefault();
+    };
+
+    this.canvas.addEventListener('pointerdown', this._boundPointerDown);
+    this.canvas.addEventListener('pointermove', this._boundPointerMove);
+    this.canvas.addEventListener('pointerup', this._boundPointerUp);
+    this.canvas.addEventListener('pointerleave', this._boundPointerUp);
 
     // タッチスクロール防止
-    this.canvas.addEventListener('touchstart', (e) => {
-      if (this.tool !== null) e.preventDefault();
-    }, { passive: false });
+    this.canvas.addEventListener('touchstart', this._boundTouchStart, { passive: false });
   }
 
   /**
@@ -92,7 +98,7 @@ export class DrawingEngine {
 
     this.currentStroke = {
       tool: this.tool,
-      color: this.tool === DrawingTool.HIGHLIGHTER ? this.color : this.color,
+      color: this.color,
       lineWidth: this.tool === DrawingTool.HIGHLIGHTER ? this.lineWidth * 4 : this.lineWidth,
       opacity: this.tool === DrawingTool.HIGHLIGHTER ? this.highlighterOpacity : 1.0,
       points: [point],
@@ -127,7 +133,7 @@ export class DrawingEngine {
   /**
    * ポインターアップ処理
    */
-  _onPointerUp(e) {
+  _onPointerUp(_e) {
     if (!this.isDrawing) return;
     this.isDrawing = false;
 
@@ -137,7 +143,8 @@ export class DrawingEngine {
       // ストロークを平滑化して保存
       this.currentStroke.points = smoothStroke(this.currentStroke.points);
       this.strokes.push(this.currentStroke);
-      this.undoStack = []; // 新しい描画でRedoスタックをクリア
+      this.undoStack.push({ type: 'draw', stroke: this.currentStroke });
+      this.redoStack = []; // 新しい操作でRedoスタックをクリア
 
       // 全体を再描画（平滑化反映）
       this.redraw();
@@ -242,6 +249,7 @@ export class DrawingEngine {
     }
 
     if (erased) {
+      this.redoStack = []; // 新しい操作でRedoスタックをクリア
       this.redraw();
       if (this.onStrokeEnd) {
         this.onStrokeEnd(this.strokes);
@@ -261,41 +269,39 @@ export class DrawingEngine {
 
   /**
    * Undo操作
+   * undoStackには操作履歴を積み、操作の逆順で処理する
    */
   undo() {
-    if (this.strokes.length === 0 && this.undoStack.length === 0) return;
+    if (this.undoStack.length === 0) return;
 
-    if (this.undoStack.length > 0) {
-      const lastUndo = this.undoStack[this.undoStack.length - 1];
-      if (lastUndo.type === 'erase') {
-        // 消しゴムで消したストロークを復元
-        const entry = this.undoStack.pop();
-        this.strokes.splice(entry.index, 0, entry.stroke);
-        this.redraw();
-        if (this.onStrokeEnd) this.onStrokeEnd(this.strokes);
-        return;
-      }
+    const entry = this.undoStack.pop();
+    if (entry.type === 'draw') {
+      // 描画を取り消す → strokesから末尾を除去してredoStackへ
+      this.strokes.pop();
+      this.redoStack.push({ type: 'draw', stroke: entry.stroke });
+    } else if (entry.type === 'erase') {
+      // 消しゴムを取り消す → 元の位置にストロークを復元してredoStackへ
+      this.strokes.splice(entry.index, 0, entry.stroke);
+      this.redoStack.push({ type: 'erase', stroke: entry.stroke, index: entry.index });
     }
 
-    if (this.strokes.length > 0) {
-      const stroke = this.strokes.pop();
-      this.undoStack.push({ type: 'draw', stroke });
-      this.redraw();
-      if (this.onStrokeEnd) this.onStrokeEnd(this.strokes);
-    }
+    this.redraw();
+    if (this.onStrokeEnd) this.onStrokeEnd(this.strokes);
   }
 
   /**
    * Redo操作
    */
   redo() {
-    if (this.undoStack.length === 0) return;
+    if (this.redoStack.length === 0) return;
 
-    const entry = this.undoStack.pop();
+    const entry = this.redoStack.pop();
     if (entry.type === 'draw') {
       this.strokes.push(entry.stroke);
+      this.undoStack.push({ type: 'draw', stroke: entry.stroke });
     } else if (entry.type === 'erase') {
       this.strokes.splice(entry.index, 1);
+      this.undoStack.push({ type: 'erase', stroke: entry.stroke, index: entry.index });
     }
 
     this.redraw();
@@ -309,6 +315,7 @@ export class DrawingEngine {
   setStrokes(strokes) {
     this.strokes = strokes ? JSON.parse(JSON.stringify(strokes)) : [];
     this.undoStack = [];
+    this.redoStack = [];
     this.redraw();
   }
 
@@ -337,17 +344,64 @@ export class DrawingEngine {
   clear() {
     this.strokes = [];
     this.undoStack = [];
+    this.redoStack = [];
     this.redraw();
+  }
+
+  /**
+   * 指定のCanvasコンテキストにストローク配列を描画（エクスポート用静的メソッド）
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Array} strokes
+   */
+  static drawStrokesToContext(ctx, strokes) {
+    for (const stroke of strokes) {
+      if (stroke.points.length === 0) continue;
+      ctx.save();
+      ctx.globalAlpha = stroke.opacity;
+      ctx.strokeStyle = stroke.color;
+      ctx.lineWidth = stroke.lineWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      if (stroke.tool === DrawingTool.HIGHLIGHTER) {
+        ctx.globalCompositeOperation = 'multiply';
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+
+      if (stroke.points.length === 1) {
+        ctx.arc(stroke.points[0].x, stroke.points[0].y, stroke.lineWidth / 2, 0, Math.PI * 2);
+        ctx.fillStyle = stroke.color;
+        ctx.fill();
+      } else if (stroke.points.length === 2) {
+        ctx.lineTo(stroke.points[1].x, stroke.points[1].y);
+      } else {
+        for (let i = 1; i < stroke.points.length - 1; i++) {
+          const cp = stroke.points[i];
+          const next = stroke.points[i + 1];
+          const mx = (cp.x + next.x) / 2;
+          const my = (cp.y + next.y) / 2;
+          ctx.quadraticCurveTo(cp.x, cp.y, mx, my);
+        }
+        const last = stroke.points[stroke.points.length - 1];
+        ctx.lineTo(last.x, last.y);
+      }
+
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   /**
    * リソース解放
    */
   destroy() {
-    this.canvas.removeEventListener('pointerdown', this._onPointerDown);
-    this.canvas.removeEventListener('pointermove', this._onPointerMove);
-    this.canvas.removeEventListener('pointerup', this._onPointerUp);
-    this.canvas.removeEventListener('pointerleave', this._onPointerUp);
+    this.canvas.removeEventListener('pointerdown', this._boundPointerDown);
+    this.canvas.removeEventListener('pointermove', this._boundPointerMove);
+    this.canvas.removeEventListener('pointerup', this._boundPointerUp);
+    this.canvas.removeEventListener('pointerleave', this._boundPointerUp);
+    this.canvas.removeEventListener('touchstart', this._boundTouchStart);
     this.clear();
   }
 }

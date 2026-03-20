@@ -13,7 +13,7 @@ import {
   deleteDocument,
   renameDocument,
 } from './storage.js';
-import { formatDate, formatFileSize, generateId } from './utils.js';
+import { formatDate } from './utils.js';
 import { PdfRenderer } from './pdf-renderer.js';
 
 // === 状態管理 ===
@@ -33,6 +33,8 @@ const renameModal = document.getElementById('rename-modal');
 const renameInput = document.getElementById('rename-input');
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
+const folderModal = document.getElementById('folder-modal');
+const folderInput = document.getElementById('folder-input');
 
 // === 初期化 ===
 async function init() {
@@ -53,7 +55,18 @@ function bindEvents() {
   document.getElementById('btn-empty-blank')?.addEventListener('click', createBlankNote);
 
   // フォルダ作成
-  document.getElementById('btn-new-folder').addEventListener('click', handleCreateFolder);
+  document.getElementById('btn-new-folder').addEventListener('click', openFolderModal);
+
+  // フォルダ作成モーダル
+  document.getElementById('folder-cancel').addEventListener('click', closeFolderModal);
+  document.getElementById('folder-confirm').addEventListener('click', confirmCreateFolder);
+  folderInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmCreateFolder();
+    if (e.key === 'Escape') closeFolderModal();
+  });
+  folderModal.addEventListener('click', (e) => {
+    if (e.target === folderModal) closeFolderModal();
+  });
 
   // コンテキストメニュー
   document.addEventListener('click', () => hideContextMenu());
@@ -152,8 +165,7 @@ function createFolderCard(folder) {
     </div>
   `;
 
-  // ダブルクリックでフォルダに入る
-  div.addEventListener('dblclick', () => navigateToFolder(folder.id, folder.name));
+  // クリックでフォルダに入る
   div.addEventListener('click', () => navigateToFolder(folder.id, folder.name));
 
   // 右クリック
@@ -308,11 +320,23 @@ async function createBlankNote() {
   await renderCurrentFolder();
 }
 
-// === フォルダ作成 ===
-async function handleCreateFolder() {
-  const name = prompt('フォルダ名を入力してください', '新しいフォルダ');
+// === フォルダ作成モーダル ===
+function openFolderModal() {
+  folderInput.value = '新しいフォルダ';
+  folderModal.classList.remove('hidden');
+  folderInput.focus();
+  folderInput.select();
+}
+
+function closeFolderModal() {
+  folderModal.classList.add('hidden');
+}
+
+async function confirmCreateFolder() {
+  const name = folderInput.value.trim();
   if (!name) return;
 
+  closeFolderModal();
   await createFolder(name, currentFolderId);
   await renderCurrentFolder();
 }

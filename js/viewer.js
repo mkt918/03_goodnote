@@ -69,7 +69,7 @@ async function init() {
     totalPages = docData.pageCount || 1;
   }
 
-  extraBlankPages = Math.max(0, totalPages - (pdfRenderer ? pdfRenderer.pageCount : 0));
+  extraBlankPages = Math.max(0, totalPages - (pdfRenderer ? pdfRenderer.pageCount : totalPages));
 
   pageTotal.textContent = totalPages;
   pageInput.max = totalPages;
@@ -467,12 +467,13 @@ async function exportAnnotatedPdf() {
   await saveAllAnnotations();
 
   // 各ページをcanvasに統合してダウンロード用画像を生成
-  // jsPDFを動的にロード
-  const script = document.createElement('script');
-  script.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js';
-  document.head.appendChild(script);
-
-  await new Promise((resolve) => (script.onload = resolve));
+  // jsPDFを動的にロード（重複ロード防止）
+  if (!window.jspdf) {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js';
+    document.head.appendChild(script);
+    await new Promise((resolve) => (script.onload = resolve));
+  }
 
   const { jsPDF } = window.jspdf;
 
@@ -522,36 +523,7 @@ async function exportAnnotatedPdf() {
     // アノテーションを重ねる
     const annotation = await getAnnotation(docId, i);
     if (annotation && annotation.strokes) {
-      const ctx = tempCanvas.getContext('2d');
-      for (const stroke of annotation.strokes) {
-        if (stroke.points.length === 0) continue;
-        ctx.save();
-        ctx.globalAlpha = stroke.opacity;
-        ctx.strokeStyle = stroke.color;
-        ctx.lineWidth = stroke.lineWidth;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-
-        if (stroke.tool === 'highlighter') {
-          ctx.globalCompositeOperation = 'multiply';
-        }
-
-        ctx.beginPath();
-        ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-        for (let j = 1; j < stroke.points.length - 1; j++) {
-          const cp = stroke.points[j];
-          const next = stroke.points[j + 1];
-          const mx = (cp.x + next.x) / 2;
-          const my = (cp.y + next.y) / 2;
-          ctx.quadraticCurveTo(cp.x, cp.y, mx, my);
-        }
-        if (stroke.points.length > 1) {
-          const last = stroke.points[stroke.points.length - 1];
-          ctx.lineTo(last.x, last.y);
-        }
-        ctx.stroke();
-        ctx.restore();
-      }
+      DrawingEngine.drawStrokesToContext(tempCanvas.getContext('2d'), annotation.strokes);
     }
 
     const imgData = tempCanvas.toDataURL('image/jpeg', 0.95);
