@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GoodNote - ビューアー</title>
+  <meta name="description" content="PDFビューアー・アノテーションツール">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'Noto Sans JP', 'sans-serif'],
+          },
+          colors: {
+            primary: {
+              50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe',
+              300: '#a5b4fc', 400: '#818cf8', 500: '#6366f1',
+              600: '#4f46e5', 700: '#4338ca', 800: '#3730a3', 900: '#312e81',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    body { overflow: hidden; }
+  </style>
+</head>
+<body class="bg-slate-200 flex flex-col h-screen select-none">
+
+  <!-- トップツールバー -->
+  <header class="bg-white border-b border-gray-200 z-20 flex-shrink-0">
+    <div class="flex items-center justify-between px-3 h-12">
+      <!-- 左: 戻るボタン + ドキュメント名 -->
+      <div class="flex items-center gap-2 min-w-0">
+        <button id="btn-back" class="tool-btn p-2 rounded-lg text-gray-500" data-tooltip="ファイル一覧へ戻る">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+          </svg>
+        </button>
+        <h1 id="doc-title" class="text-sm font-semibold text-gray-700 truncate max-w-[200px]">読み込み中...</h1>
+        <span id="save-indicator" class="save-indicator text-xs text-gray-400 hidden">
+          <span class="saved">✓ 保存済み</span>
+          <span class="saving hidden">⏳ 保存中...</span>
+        </span>
+      </div>
+
+      <!-- 中央: 描画ツール -->
+      <div class="flex items-center gap-1 bg-gray-50 rounded-xl px-2 py-1">
+        <!-- ペン -->
+        <button id="tool-pen" class="tool-btn active p-2 rounded-lg" data-tooltip="ペン">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+          </svg>
+        </button>
+        <!-- ハイライター -->
+        <button id="tool-highlighter" class="tool-btn p-2 rounded-lg text-gray-500" data-tooltip="ハイライター">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+          </svg>
+        </button>
+        <!-- 消しゴム -->
+        <button id="tool-eraser" class="tool-btn p-2 rounded-lg text-gray-500" data-tooltip="消しゴム">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M3 17l6 4h12M17.586 3.586a2 2 0 112.828 2.828l-10 10-4.242-4.242 10-10z"/>
+          </svg>
+        </button>
+
+        <div class="w-px h-5 bg-gray-200 mx-1"></div>
+
+        <!-- カラーピッカー -->
+        <div class="flex items-center gap-1.5 px-1">
+          <button class="color-dot active" data-color="#1a1a2e" style="background:#1a1a2e"></button>
+          <button class="color-dot" data-color="#e74c3c" style="background:#e74c3c"></button>
+          <button class="color-dot" data-color="#2563eb" style="background:#2563eb"></button>
+          <button class="color-dot" data-color="#16a34a" style="background:#16a34a"></button>
+          <button class="color-dot" data-color="#f59e0b" style="background:#f59e0b"></button>
+          <input type="color" id="custom-color" value="#6366f1" class="w-6 h-6 rounded-full cursor-pointer border-0 p-0" data-tooltip="カスタムカラー">
+        </div>
+
+        <div class="w-px h-5 bg-gray-200 mx-1"></div>
+
+        <!-- 線の太さ -->
+        <div class="flex items-center gap-1 px-1">
+          <label class="text-[10px] text-gray-400 font-medium">太さ</label>
+          <input type="range" id="line-width" min="1" max="20" value="2"
+            class="w-16 h-1 accent-primary-500 cursor-pointer">
+          <span id="line-width-label" class="text-[10px] text-gray-500 w-4 text-center">2</span>
+        </div>
+
+        <div class="w-px h-5 bg-gray-200 mx-1"></div>
+
+        <!-- Undo/Redo -->
+        <button id="btn-undo" class="tool-btn p-2 rounded-lg text-gray-500" data-tooltip="元に戻す (Ctrl+Z)">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a5 5 0 015 5v2M3 10l4-4m-4 4l4 4"/>
+          </svg>
+        </button>
+        <button id="btn-redo" class="tool-btn p-2 rounded-lg text-gray-500" data-tooltip="やり直し (Ctrl+Y)">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 10H11a5 5 0 00-5 5v2M21 10l-4-4m4 4l-4 4"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- 右: 表示制御 -->
+      <div class="flex items-center gap-1">
+        <!-- ズーム -->
+        <button id="btn-zoom-out" class="tool-btn p-2 rounded-lg text-gray-500" data-tooltip="縮小">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7"/>
+          </svg>
+        </button>
+        <button id="btn-zoom-reset" class="text-xs font-medium text-gray-500 px-2 py-1 rounded hover:bg-gray-100 min-w-[48px] text-center" data-tooltip="ズームリセット">
+          100%
+        </button>
+        <button id="btn-zoom-in" class="tool-btn p-2 rounded-lg text-gray-500" data-tooltip="拡大">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7"/>
+          </svg>
+        </button>
+
+        <div class="w-px h-5 bg-gray-200 mx-1"></div>
+
+        <!-- 見開き -->
+        <button id="btn-spread" class="tool-btn p-2 rounded-lg text-gray-500" data-tooltip="見開き表示">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+          </svg>
+        </button>
+
+        <!-- 白紙追加 -->
+        <button id="btn-add-page" class="tool-btn p-2 rounded-lg text-gray-500" data-tooltip="白紙ページ追加">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 4v16m8-8H4"/>
+          </svg>
+        </button>
+
+        <!-- エクスポート -->
+        <button id="btn-export" class="tool-btn p-2 rounded-lg text-gray-500" data-tooltip="PDF書き出し">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ビューアーコンテンツ -->
+  <main id="viewer-main" class="viewer-container flex-1 flex items-start justify-center overflow-auto">
+    <!-- ローディング -->
+    <div id="loading" class="flex flex-col items-center justify-center h-full gap-3">
+      <div class="spinner"></div>
+      <p class="text-sm text-gray-400">読み込み中...</p>
+    </div>
+
+    <!-- ページコンテナ -->
+    <div id="pages-container" class="py-6 hidden">
+    </div>
+  </main>
+
+  <!-- 下部: ページナビゲーション -->
+  <footer class="bg-white border-t border-gray-200 flex-shrink-0">
+    <div class="flex items-center justify-center gap-3 py-2 px-4">
+      <button id="btn-prev-page" class="page-nav-btn p-1.5 rounded-lg text-gray-400" disabled>
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+      </button>
+      <div class="flex items-center gap-1.5 text-sm">
+        <input id="page-input" type="number" min="1" value="1"
+          class="w-12 text-center text-sm font-medium text-gray-700 border border-gray-200 rounded-lg py-1 focus:border-primary-400 focus:ring-1 focus:ring-primary-100 outline-none">
+        <span class="text-gray-400">/</span>
+        <span id="page-total" class="text-gray-500 font-medium">1</span>
+      </div>
+      <button id="btn-next-page" class="page-nav-btn p-1.5 rounded-lg text-gray-400" disabled>
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </button>
+    </div>
+  </footer>
+
+  <script type="module" src="js/viewer.js"></script>
+</body>
+</html>
